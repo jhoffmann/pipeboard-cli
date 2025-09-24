@@ -23,7 +23,7 @@ A Terminal User Interface (TUI) tool for monitoring AWS CodePipeline status usin
 
 ```bash
 git clone <repository>
-cd pipeboard-v2
+cd pipeboard-cli
 go build -o pipeboard
 ```
 
