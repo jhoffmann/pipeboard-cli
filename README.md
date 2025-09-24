@@ -60,4 +60,8 @@ The application uses the AWS SDK's default credential chain:
 Required AWS permissions:
 
 - `codepipeline:ListPipelines`
-- `codepipeline:GetPipelineState`
+- `codepipeline:ListPipelineExecutions`
+- `codepipeline:ListActionExecutions`
+- `codebuild:BatchGetBuilds`
+- `logs:GetLogEvents`
+- `logs:DescribeLogStreams`
