@@ -1,6 +1,6 @@
 # Pipeboard - AWS CodePipeline TUI Monitor
 
-A Terminal User Interface (TUI) tool for monitoring AWS CodePipeline status using Go and Bubble Tea.
+A Terminal User Interface (TUI) tool for monitoring AWS CodePipeline status using Go.
 
 ![demo](https://github.com/jhoffmann/pipeboard-cli/blob/main/demo/demo.gif?raw=true)
 
