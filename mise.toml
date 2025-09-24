@@ -1,0 +1,70 @@
+[vars]
+project = "pipeboard-cli"
+
+[tasks.install]
+depends = "build"
+run = "cp build/{{vars.project}} $HOME/bin/{{vars.project}}"
+
+[tasks.run]
+description = "Run the application"
+run = "go run ."
+
+[tasks.demo]
+description = "Regenerate the demo recording"
+run = "cd demo && vhs demo.tape"
+
+[tasks.clean]
+description = "Clean build and test artifacts"
+run = ["rm -rf build", "rm -f *.out *.html *.db", "go clean -testcache"]
+
+[tasks.dev]
+description = "Standard development workflow"
+depends = ["dependencies", "format", "analysis", "test"]
+alias = "d"
+
+[tasks.dependencies]
+description = "Install dependencies"
+alias = "deps"
+hide = true
+run = ["go mod download", "go mod tidy"]
+
+[tasks.format]
+description = "Format code"
+alias = "fmt"
+hide = true
+run = ["go fmt ./...", "prettier -lw ."]
+
+[tasks.analysis]
+description = "Run a static code analyzer"
+alias = "vet"
+hide = true
+run = "go vet ./..."
+
+[tasks.test]
+description = "Run tests"
+run = "go test -tags=coverage ./... -cover"
+
+[tasks.build-all]
+depends = ["build", "build-windows"]
+description = "Build for all target platforms"
+
+[tasks.build]
+env = { CGO_ENABLED = "0", GOOS = "linux" }
+run = "go build -a -ldflags '-extldflags \"-static\"' -o build/{{vars.project}} ."
+
+[tasks.build-windows]
+env = { GOARCH = "amd64", GOOS = "windows" }
+run = "go build -o build/{{vars.project}}.exe"
+
+[tasks.coverage]
+description = "Run tests with coverage report"
+alias = "cov"
+run = [
+  "go test ./... -coverprofile=coverage.out",
+  "go tool cover -html=coverage.out -o coverage.html",
+  "go tool cover -func=coverage.out",
+]
+
+[tasks.sloc]
+description = "Count lines of code"
+run = "tokei -C -e '*_test.go' -e '*-lock.json'"
