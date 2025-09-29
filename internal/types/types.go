@@ -26,7 +26,7 @@ func (p Pipeline) Description() string {
 	coloredStatus := ColorizeStatus(p.Status)
 
 	if p.LastExecutionTime.IsZero() {
-		return fmt.Sprintf("%s", coloredStatus)
+		return coloredStatus
 	}
 
 	timeAgo := FormatTimeAgo(time.Since(p.LastExecutionTime))

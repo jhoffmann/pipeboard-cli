@@ -300,7 +300,7 @@ func (s *CodePipelineService) GetActionLogs(ctx context.Context, pipelineName, s
 }
 
 // determineLogGroup determines the CloudWatch log group name for an action using external execution details
-func (s *CodePipelineService) determineLogGroup(ctx context.Context, pipelineName string, action *appTypes.ActionExecution) (string, error) {
+func (s *CodePipelineService) determineLogGroup(_ context.Context, _ string, action *appTypes.ActionExecution) (string, error) {
 	// Use external execution ID to determine the actual log group
 	if action.ExternalExecutionId != "" {
 		switch action.ActionType {
@@ -355,7 +355,7 @@ func (s *CodePipelineService) determineLogGroup(ctx context.Context, pipelineNam
 }
 
 // findLogStreams finds the appropriate log streams for a given action
-func (s *CodePipelineService) findLogStreams(ctx context.Context, logGroupName string, action *appTypes.ActionExecution, startTime, endTime time.Time) ([]string, error) {
+func (s *CodePipelineService) findLogStreams(ctx context.Context, logGroupName string, action *appTypes.ActionExecution, startTime, _ time.Time) ([]string, error) {
 	// List log streams in the log group within the time range
 	input := &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),

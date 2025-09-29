@@ -50,7 +50,10 @@ func TestSetupLoggerOutput(t *testing.T) {
 	os.Stderr = oldStderr
 
 	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	_, err := buf.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("Failed to read from buffer: %v", err)
+	}
 	output := buf.String()
 
 	if !strings.Contains(output, "test message") {
@@ -71,7 +74,10 @@ func TestSetupLoggerJSON(t *testing.T) {
 	os.Stderr = oldStderr
 
 	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	_, err := buf.ReadFrom(r)
+	if err != nil {
+		t.Fatalf("Failed to read from buffer: %v", err)
+	}
 	output := buf.String()
 
 	// JSON output should contain structured fields
