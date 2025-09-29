@@ -19,6 +19,89 @@ import (
 	appTypes "github.com/jhoffmann/pipeboard-cli/internal/types"
 )
 
+const (
+	// AWS API call timeout
+	awsAPITimeout = 30 * time.Second
+
+	// AWS API pagination limits
+	defaultMaxPipelineResults = 1
+	defaultMaxLogResults      = 500
+	defaultMaxLogStreams      = 50
+
+	// Log fetching configuration
+	logFetchWindowMinutes = 5
+
+	// CloudWatch log group prefixes
+	logGroupCodeBuild  = "/aws/codebuild/"
+	logGroupCodeDeploy = "/aws/codedeploy-agent"
+	logGroupLambda     = "/aws/lambda/"
+)
+
+// logGroupStrategy defines how to determine log group names for different action types
+type logGroupStrategy struct {
+	extractIdentifier func(string, string) string // extractIdentifier(externalExecutionId, externalExecutionUrl) string
+	format            string
+	isStatic          bool // true if log group doesn't depend on identifiers
+}
+
+// actionTypeStrategies maps action types to their log group determination strategies
+var actionTypeStrategies = map[string]logGroupStrategy{
+	"Build": {
+		extractIdentifier: extractProjectFromBuildID,
+		format:            logGroupCodeBuild + "%s",
+		isStatic:          false,
+	},
+	"Test": {
+		extractIdentifier: extractProjectFromBuildID,
+		format:            logGroupCodeBuild + "%s",
+		isStatic:          false,
+	},
+	"Invoke": {
+		extractIdentifier: extractLambdaIdentifier,
+		format:            logGroupLambda + "%s",
+		isStatic:          false,
+	},
+	"Deploy": {
+		extractIdentifier: nil,
+		format:            logGroupCodeDeploy,
+		isStatic:          true,
+	},
+}
+
+// extractProjectFromBuildID extracts the project name from a CodeBuild build ID
+func extractProjectFromBuildID(buildID, _ string) string {
+	if parts := strings.Split(buildID, ":"); len(parts) >= 1 {
+		return parts[0]
+	}
+	return buildID
+}
+
+// extractLambdaIdentifier extracts function name from Lambda execution URL or returns the build ID
+func extractLambdaIdentifier(executionID, executionURL string) string {
+	if executionURL != "" {
+		if functionName := extractLambdaFunctionName(executionURL); functionName != "" {
+			return functionName
+		}
+	}
+	return executionID
+}
+
+// extractLambdaFunctionName extracts function name from Lambda execution URL
+func extractLambdaFunctionName(executionUrl string) string {
+	// Lambda console URLs typically contain the function name
+	// Example: https://console.aws.amazon.com/lambda/home?region=us-east-1#/functions/my-function
+	if strings.Contains(executionUrl, "/functions/") {
+		parts := strings.Split(executionUrl, "/functions/")
+		if len(parts) > 1 {
+			// Extract function name, remove any query parameters
+			functionPart := strings.Split(parts[1], "?")[0]
+			functionPart = strings.Split(functionPart, "/")[0]
+			return functionPart
+		}
+	}
+	return ""
+}
+
 // CodePipelineAPI defines the interface for AWS CodePipeline operations.
 // This interface enables dependency injection and testing with mock implementations.
 type CodePipelineAPI interface {
@@ -98,6 +181,9 @@ func (s *CodePipelineService) GetFilter() string {
 // ListPipelines retrieves all AWS CodePipelines matching the configured filter.
 // Returns pipeline information including status and last execution time.
 func (s *CodePipelineService) ListPipelines(ctx context.Context) ([]appTypes.Pipeline, error) {
+	ctx, cancel := context.WithTimeout(ctx, awsAPITimeout)
+	defer cancel()
+
 	s.logger.Debug("Listing pipelines", "filter", s.filter)
 
 	result, err := s.client.ListPipelines(ctx, &codepipeline.ListPipelinesInput{})
@@ -138,7 +224,7 @@ func (s *CodePipelineService) ListPipelines(ctx context.Context) ([]appTypes.Pip
 func (s *CodePipelineService) getPipelineExecutionInfo(ctx context.Context, pipelineName string) (string, time.Time, error) {
 	result, err := s.client.ListPipelineExecutions(ctx, &codepipeline.ListPipelineExecutionsInput{
 		PipelineName: aws.String(pipelineName),
-		MaxResults:   aws.Int32(1),
+		MaxResults:   aws.Int32(defaultMaxPipelineResults),
 	})
 	if err != nil {
 		return "", time.Time{}, err
@@ -162,6 +248,9 @@ func (s *CodePipelineService) getPipelineExecutionInfo(ctx context.Context, pipe
 // GetPipelineActions retrieves all action executions for a specific pipeline.
 // If no executions exist, returns actions from the pipeline definition with "Not executed" status.
 func (s *CodePipelineService) GetPipelineActions(ctx context.Context, pipelineName string) ([]appTypes.ActionExecution, error) {
+	ctx, cancel := context.WithTimeout(ctx, awsAPITimeout)
+	defer cancel()
+
 	s.logger.Debug("Getting pipeline actions", "pipeline", pipelineName)
 	// Get pipeline definition to understand the structure
 	pipelineResult, err := s.client.GetPipeline(ctx, &codepipeline.GetPipelineInput{
@@ -175,7 +264,7 @@ func (s *CodePipelineService) GetPipelineActions(ctx context.Context, pipelineNa
 	// Get the latest pipeline execution
 	execResult, err := s.client.ListPipelineExecutions(ctx, &codepipeline.ListPipelineExecutionsInput{
 		PipelineName: aws.String(pipelineName),
-		MaxResults:   aws.Int32(1),
+		MaxResults:   aws.Int32(defaultMaxPipelineResults),
 	})
 	if err != nil || len(execResult.PipelineExecutionSummaries) == 0 {
 		s.logger.Debug("No pipeline executions found, returning actions from definition", "pipeline", pipelineName)
@@ -261,6 +350,9 @@ func (s *CodePipelineService) getActionsFromDefinition(stages []types.StageDecla
 
 // GetActionLogs retrieves log entries for a specific action execution from AWS CloudWatch Logs.
 func (s *CodePipelineService) GetActionLogs(ctx context.Context, pipelineName, stageName, actionName string) ([]appTypes.LogEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, awsAPITimeout)
+	defer cancel()
+
 	s.logger.Debug("Getting action logs", "pipeline", pipelineName, "stage", stageName, "action", actionName)
 
 	// Get action details to determine the log source
@@ -301,57 +393,25 @@ func (s *CodePipelineService) GetActionLogs(ctx context.Context, pipelineName, s
 
 // determineLogGroup determines the CloudWatch log group name for an action using external execution details
 func (s *CodePipelineService) determineLogGroup(_ context.Context, _ string, action *appTypes.ActionExecution) (string, error) {
-	// Use external execution ID to determine the actual log group
-	if action.ExternalExecutionId != "" {
-		switch action.ActionType {
-		case "Build":
-			// For CodeBuild, external execution ID is the build ID
-			// Parse the project name from the build ID format: <project-name>:<build-id>
-			if parts := strings.Split(action.ExternalExecutionId, ":"); len(parts) >= 1 {
-				projectName := parts[0]
-				return fmt.Sprintf("/aws/codebuild/%s", projectName), nil
-			}
-			// Fallback to using the build ID directly
-			return fmt.Sprintf("/aws/codebuild/%s", action.ExternalExecutionId), nil
-
-		case "Deploy":
-			// For CodeDeploy, external execution ID is the deployment ID
-			// Use it to find the specific deployment logs
-			return "/aws/codedeploy-agent", nil
-
-		case "Invoke":
-			// For Lambda, external execution ID can help identify the function
-			// But we might need to extract function name from the execution URL
-			if action.ExternalExecutionUrl != "" {
-				if functionName := s.extractLambdaFunctionName(action.ExternalExecutionUrl); functionName != "" {
-					return fmt.Sprintf("/aws/lambda/%s", functionName), nil
-				}
-			}
-			return fmt.Sprintf("/aws/lambda/%s", action.ActionName), nil
-
-		case "Test":
-			// Test actions in CodeBuild
-			if parts := strings.Split(action.ExternalExecutionId, ":"); len(parts) >= 1 {
-				projectName := parts[0]
-				return fmt.Sprintf("/aws/codebuild/%s", projectName), nil
-			}
-			return fmt.Sprintf("/aws/codebuild/%s", action.ExternalExecutionId), nil
-		}
-	}
-
-	// Fallback to basic action type mapping if no external execution ID
-	switch action.ActionType {
-	case "Build":
-		return fmt.Sprintf("/aws/codebuild/%s", action.ActionName), nil
-	case "Deploy":
-		return "/aws/codedeploy-agent", nil
-	case "Invoke":
-		return fmt.Sprintf("/aws/lambda/%s", action.ActionName), nil
-	case "Test":
-		return fmt.Sprintf("/aws/codebuild/%s", action.ActionName), nil
-	default:
+	strategy, exists := actionTypeStrategies[action.ActionType]
+	if !exists {
 		return "", fmt.Errorf("unsupported action type for log retrieval: %s", action.ActionType)
 	}
+
+	// For static log groups (like CodeDeploy), return immediately
+	if strategy.isStatic {
+		return strategy.format, nil
+	}
+
+	// Determine identifier for log group name
+	identifier := action.ActionName // fallback to action name
+
+	// Try to extract identifier from external execution details if available
+	if action.ExternalExecutionId != "" && strategy.extractIdentifier != nil {
+		identifier = strategy.extractIdentifier(action.ExternalExecutionId, action.ExternalExecutionUrl)
+	}
+
+	return fmt.Sprintf(strategy.format, identifier), nil
 }
 
 // findLogStreams finds the appropriate log streams for a given action
@@ -359,9 +419,9 @@ func (s *CodePipelineService) findLogStreams(ctx context.Context, logGroupName s
 	// List log streams in the log group within the time range
 	input := &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),
-		OrderBy:      "LastEventTime", // Order by most recent events
+		OrderBy:      "LastEventTime",
 		Descending:   aws.Bool(true),
-		Limit:        aws.Int32(50), // Get the most recent 50 streams
+		Limit:        aws.Int32(defaultMaxLogStreams),
 	}
 
 	result, err := s.cwlClient.DescribeLogStreams(ctx, input)
@@ -414,18 +474,20 @@ func (s *CodePipelineService) findLogStreams(ctx context.Context, logGroupName s
 
 // fetchCloudWatchLogs retrieves logs from CloudWatch Logs for the specified log group
 func (s *CodePipelineService) fetchCloudWatchLogs(ctx context.Context, logGroupName string, action *appTypes.ActionExecution) ([]appTypes.LogEntry, error) {
-	// Always use exactly 5 minutes ending at a logical point
-	var endTime time.Time
+	ctx, cancel := context.WithTimeout(ctx, awsAPITimeout)
+	defer cancel()
 
+	// Determine the time window for log fetching
+	var endTime time.Time
 	if !action.EndTime.IsZero() {
-		// For completed actions: 5-minute window ending at completion time
+		// For completed actions: use completion time
 		endTime = action.EndTime
 	} else {
-		// For running actions: 5-minute window ending at current time
+		// For running actions: use current time
 		endTime = time.Now()
 	}
 
-	startTime := endTime.Add(-5 * time.Minute)
+	startTime := endTime.Add(-logFetchWindowMinutes * time.Minute)
 
 	// Find the correct log streams for this action
 	logStreamNames, err := s.findLogStreams(ctx, logGroupName, action, startTime, endTime)
@@ -438,7 +500,7 @@ func (s *CodePipelineService) fetchCloudWatchLogs(ctx context.Context, logGroupN
 		LogGroupName: aws.String(logGroupName),
 		StartTime:    aws.Int64(startTime.UnixMilli()),
 		EndTime:      aws.Int64(endTime.UnixMilli()),
-		Limit:        aws.Int32(500), // 5-minute window should have fewer logs
+		Limit:        aws.Int32(defaultMaxLogResults),
 	}
 
 	// If we found specific log streams, use them
@@ -524,22 +586,6 @@ func (s *CodePipelineService) extractLogSource(logGroupName string) string {
 	default:
 		return "CloudWatch"
 	}
-}
-
-// extractLambdaFunctionName extracts function name from Lambda execution URL
-func (s *CodePipelineService) extractLambdaFunctionName(executionUrl string) string {
-	// Lambda console URLs typically contain the function name
-	// Example: https://console.aws.amazon.com/lambda/home?region=us-east-1#/functions/my-function
-	if strings.Contains(executionUrl, "/functions/") {
-		parts := strings.Split(executionUrl, "/functions/")
-		if len(parts) > 1 {
-			// Extract function name, remove any query parameters
-			functionPart := strings.Split(parts[1], "?")[0]
-			functionPart = strings.Split(functionPart, "/")[0]
-			return functionPart
-		}
-	}
-	return ""
 }
 
 // getPlaceholderLogs returns minimal placeholder logs when real logs can't be fetched

@@ -4,8 +4,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"log/slog"
 	"time"
 
@@ -18,46 +16,15 @@ import (
 	"github.com/jhoffmann/pipeboard-cli/internal/types"
 )
 
+const (
+	// refreshIntervalSeconds defines how often to automatically refresh pipeline data
+	refreshIntervalSeconds = 30
+
+	// statusBarReservedLines is the number of vertical lines reserved for the status bar
+	statusBarReservedLines = 2
+)
+
 var docStyle = lipgloss.NewStyle().Margin(1, 2, 0, 2) // top, right, bottom, left
-
-// compactDelegate is a custom list delegate with minimal spacing for logs
-type compactDelegate struct{}
-
-func (d compactDelegate) Height() int                             { return 1 }
-func (d compactDelegate) Spacing() int                            { return 0 }
-func (d compactDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
-func (d compactDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	i, ok := listItem.(logItem)
-	if !ok {
-		return
-	}
-
-	str := i.Title()
-
-	// Apply selection styling if this item is selected
-	if index == m.Index() {
-		str = lipgloss.NewStyle().
-			Background(lipgloss.Color("62")).
-			Foreground(lipgloss.Color("230")).
-			Render(str)
-	}
-
-	fmt.Fprint(w, str)
-}
-
-// pipelineItem wraps a Pipeline for use in the bubble tea list component.
-type pipelineItem struct {
-	pipeline types.Pipeline
-}
-
-// Title returns the pipeline name for list display.
-func (i pipelineItem) Title() string { return i.pipeline.Name }
-
-// Description returns the formatted pipeline status description.
-func (i pipelineItem) Description() string { return i.pipeline.Description() }
-
-// FilterValue returns the pipeline name for list filtering.
-func (i pipelineItem) FilterValue() string { return i.pipeline.Name }
 
 // refreshMsg is sent periodically to trigger data refresh.
 type refreshMsg struct{}
@@ -66,36 +33,6 @@ type refreshMsg struct{}
 type pipelinesLoadedMsg struct {
 	pipelines []types.Pipeline
 }
-
-// actionItem wraps an ActionExecution for use in the bubble tea list component.
-type actionItem struct {
-	action types.ActionExecution
-}
-
-// Title returns the stage and action name for list display.
-func (i actionItem) Title() string { return i.action.StageName + " → " + i.action.ActionName }
-
-// Description returns the formatted action execution description.
-func (i actionItem) Description() string { return i.action.Description() }
-
-// FilterValue returns the combined stage and action name for list filtering.
-func (i actionItem) FilterValue() string { return i.action.StageName + " " + i.action.ActionName }
-
-// logItem wraps a LogEntry for use in the bubble tea list component.
-type logItem struct {
-	log types.LogEntry
-}
-
-// Title returns the full log entry formatted for single-line display.
-func (i logItem) Title() string {
-	return i.log.Description()
-}
-
-// Description returns empty string since we want single-line display.
-func (i logItem) Description() string { return "" }
-
-// FilterValue returns the log message and level for list filtering.
-func (i logItem) FilterValue() string { return i.log.Level + " " + i.log.Message + " " + i.log.Source }
 
 // actionsLoadedMsg contains the result of loading pipeline actions from AWS.
 type actionsLoadedMsg struct {
@@ -189,7 +126,7 @@ func (m Model) Init() tea.Cmd {
 // Update handles incoming messages and updates the model state.
 // Routes to appropriate view-specific update functions.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Route to appropriate update function
+	// Route to appropriate view-specific update function based on current view
 	switch m.currentView {
 	case "list":
 		return updateListView(msg, m)
@@ -254,9 +191,9 @@ func (m Model) loadPipelines() tea.Cmd {
 	}
 }
 
-// tickRefresh returns a command that sends refresh messages every 30 seconds.
+// tickRefresh returns a command that sends refresh messages at regular intervals.
 func (m Model) tickRefresh() tea.Cmd {
-	return tea.Tick(30*time.Second, func(time.Time) tea.Msg {
+	return tea.Tick(refreshIntervalSeconds*time.Second, func(time.Time) tea.Msg {
 		return refreshMsg{}
 	})
 }
@@ -287,198 +224,4 @@ func (m Model) loadActionLogs() tea.Cmd {
 		}
 		return logsLoadedMsg{logs: logs}
 	}
-}
-
-// updateListView handles messages when in pipeline list view.
-// Manages pipeline selection, refresh, and navigation to detail view.
-func updateListView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	// Update help keys for list view
-	m.keys.back.SetEnabled(false)
-	m.keys.enter.SetEnabled(true)
-
-	m.list.Title = "AWS CodePipelines"
-
-	// Start spinner if we have no items (initial load)
-	if len(m.list.Items()) == 0 {
-		cmds = append(cmds, m.list.StartSpinner())
-	}
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Don't match any of the keys below if we're actively filtering.
-		if m.list.FilterState() == list.Filtering {
-			break
-		}
-
-		switch {
-		case key.Matches(msg, m.keys.refresh):
-			return m, tea.Batch(m.loadPipelines(), m.list.StartSpinner())
-		case key.Matches(msg, m.keys.enter):
-			if len(m.list.Items()) > 0 {
-				selected := m.list.SelectedItem().(pipelineItem)
-				m.selectedPipeline = selected.pipeline
-				m.currentView = "detail"
-				// Clear filter when switching to detail view
-				m.list.ResetFilter()
-				return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
-			}
-		}
-
-	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
-		// Reserve space for status bar (1 line + 1 for spacing)
-		m.list.SetSize(msg.Width-h, msg.Height-v-2)
-		m.width = msg.Width
-		m.height = msg.Height
-
-	case refreshMsg:
-		if m.currentView == "list" {
-			return m, tea.Batch(
-				m.loadPipelines(),
-				m.tickRefresh(),
-				m.list.StartSpinner(),
-			)
-		}
-
-	case pipelinesLoadedMsg:
-		m.list.StopSpinner()
-		// Ensure default delegate for pipelines view
-		m.list.SetDelegate(list.NewDefaultDelegate())
-		items := make([]list.Item, len(msg.pipelines))
-		for i, pipeline := range msg.pipelines {
-			items[i] = pipelineItem{pipeline: pipeline}
-		}
-		m.list.SetItems(items)
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
-}
-
-// updateDetailView handles messages when in pipeline detail view.
-// Manages action refresh and navigation back to list view.
-func updateDetailView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	// Update help keys for detail view
-	m.keys.back.SetEnabled(true)
-	m.keys.enter.SetEnabled(true)
-
-	m.list.Title = "Actions: " + m.selectedPipeline.Name
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Don't match any of the keys below if we're actively filtering.
-		if m.list.FilterState() == list.Filtering {
-			break
-		}
-
-		switch {
-		case key.Matches(msg, m.keys.refresh):
-			return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
-		case key.Matches(msg, m.keys.enter):
-			if len(m.list.Items()) > 0 {
-				selected := m.list.SelectedItem().(actionItem)
-				m.selectedAction = selected.action
-				m.currentView = "logs"
-				// Clear filter when switching to logs view
-				m.list.ResetFilter()
-				return m, tea.Batch(m.loadActionLogs(), m.list.StartSpinner())
-			}
-		case key.Matches(msg, m.keys.back):
-			m.currentView = "list"
-			// Clear filter when switching back to list view
-			m.list.ResetFilter()
-			return m, tea.Batch(m.loadPipelines(), m.list.StartSpinner())
-		}
-
-	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
-		// Reserve space for status bar (1 line + 1 for spacing)
-		m.list.SetSize(msg.Width-h, msg.Height-v-2)
-		m.width = msg.Width
-		m.height = msg.Height
-
-	case actionsLoadedMsg:
-		m.list.StopSpinner()
-		// Ensure default delegate for actions view
-		m.list.SetDelegate(list.NewDefaultDelegate())
-		items := make([]list.Item, len(msg.actions))
-		for i, action := range msg.actions {
-			items[i] = actionItem{action: action}
-		}
-		m.list.SetItems(items)
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
-}
-
-// updateLogsView handles messages when in action logs view.
-// Manages log refresh and navigation back to actions view.
-func updateLogsView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-
-	// Update help keys for logs view
-	m.keys.back.SetEnabled(true)
-	m.keys.enter.SetEnabled(false)
-
-	m.list.Title = "Logs: " + m.selectedAction.StageName + " → " + m.selectedAction.ActionName
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Don't match any of the keys below if we're actively filtering.
-		if m.list.FilterState() == list.Filtering {
-			break
-		}
-
-		switch {
-		case key.Matches(msg, m.keys.refresh):
-			return m, tea.Batch(m.loadActionLogs(), m.list.StartSpinner())
-		case key.Matches(msg, m.keys.back):
-			m.currentView = "detail"
-			// Clear filter when switching back to detail view
-			m.list.ResetFilter()
-			// Restore default delegate when leaving logs view
-			m.list.SetDelegate(list.NewDefaultDelegate())
-			// Re-enable pagination and status bar when leaving logs view
-			m.list.SetShowPagination(true)
-			m.list.SetShowStatusBar(true)
-			return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
-		}
-
-	case tea.WindowSizeMsg:
-		h, v := docStyle.GetFrameSize()
-		// Reserve space for status bar (1 line + 1 for spacing)
-		m.list.SetSize(msg.Width-h, msg.Height-v-2)
-		m.width = msg.Width
-		m.height = msg.Height
-
-	case logsLoadedMsg:
-		m.list.StopSpinner()
-		// Switch to compact delegate for logs view
-		m.list.SetDelegate(compactDelegate{})
-		// Disable pagination and status bar for logs view to maximize content space
-		m.list.SetShowPagination(false)
-		m.list.SetShowStatusBar(false)
-		items := make([]list.Item, len(msg.logs))
-		for i, log := range msg.logs {
-			items[i] = logItem{log: log}
-		}
-		m.list.SetItems(items)
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
 }
