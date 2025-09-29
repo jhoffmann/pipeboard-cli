@@ -409,17 +409,18 @@ func (s *CodePipelineService) findLogStreams(ctx context.Context, logGroupName s
 
 // fetchCloudWatchLogs retrieves logs from CloudWatch Logs for the specified log group
 func (s *CodePipelineService) fetchCloudWatchLogs(ctx context.Context, logGroupName string, action *appTypes.ActionExecution) ([]appTypes.LogEntry, error) {
-	// Calculate time range - look for logs from the last 24 hours or since action start time
-	endTime := time.Now()
-	startTime := endTime.Add(-24 * time.Hour)
+	// Always use exactly 5 minutes ending at a logical point
+	var endTime time.Time
 
-	// If we have action start time, use it to narrow the search
-	if !action.StartTime.IsZero() {
-		startTime = action.StartTime.Add(-5 * time.Minute) // Start 5 minutes before action
-		if !action.EndTime.IsZero() {
-			endTime = action.EndTime.Add(5 * time.Minute) // End 5 minutes after action
-		}
+	if !action.EndTime.IsZero() {
+		// For completed actions: 5-minute window ending at completion time
+		endTime = action.EndTime
+	} else {
+		// For running actions: 5-minute window ending at current time
+		endTime = time.Now()
 	}
+
+	startTime := endTime.Add(-5 * time.Minute)
 
 	// Find the correct log streams for this action
 	logStreamNames, err := s.findLogStreams(ctx, logGroupName, action, startTime, endTime)
@@ -432,7 +433,7 @@ func (s *CodePipelineService) fetchCloudWatchLogs(ctx context.Context, logGroupN
 		LogGroupName: aws.String(logGroupName),
 		StartTime:    aws.Int64(startTime.UnixMilli()),
 		EndTime:      aws.Int64(endTime.UnixMilli()),
-		Limit:        aws.Int32(1000), // Increased limit to get more logs
+		Limit:        aws.Int32(500), // 5-minute window should have fewer logs
 	}
 
 	// If we found specific log streams, use them
