@@ -1,5 +1,6 @@
 [vars]
 project = "pipeboard-cli"
+version = "$(git describe --tags --always --dirty)"
 
 [tasks.install]
 depends = "build"
@@ -7,7 +8,7 @@ run = "cp build/{{vars.project}} $HOME/bin/{{vars.project}}"
 
 [tasks.run]
 description = "Run the application"
-run = "go run ."
+run = "go run cmd/pipeboard/*.go"
 
 [tasks.demo]
 description = "Regenerate the demo recording"
@@ -50,11 +51,18 @@ description = "Build for all target platforms"
 
 [tasks.build]
 env = { CGO_ENABLED = "0", GOOS = "linux" }
-run = "go build -a -ldflags '-extldflags \"-static\"' -o build/{{vars.project}} ."
+run = '''
+  go build -a -ldflags "
+    -extldflags \"-static\"
+    -X main.version={{vars.version}}
+  " -o build/{{vars.project}} cmd/pipeboard/*.go
+'''
 
 [tasks.build-windows]
 env = { GOARCH = "amd64", GOOS = "windows" }
-run = "go build -o build/{{vars.project}}.exe"
+run = '''
+  go build -ldflags "-X main.version={{vars.version}}" -o build/{{vars.project}}.exe cmd/pipeboard/*.go
+'''
 
 [tasks.coverage]
 description = "Run tests with coverage report"
@@ -67,4 +75,4 @@ run = [
 
 [tasks.sloc]
 description = "Count lines of code"
-run = "tokei -C -e '*_test.go' -e '*-lock.json'"
+run = "tokei -C -e '*_test.go'"

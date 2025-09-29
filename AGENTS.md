@@ -1,44 +1,35 @@
-# Agent Guidelines for Pipeboard
+# AGENTS.md - Development Guide for Coding Agents
 
-## Build/Test Commands
+## Build & Test Commands
 
-- **Build**: `mise build` → outputs to `build/pipeboard`
-- **Test**: `mise test` (runs `go test -tags=coverage ./... -cover`)
-- **Single test**: `go test -run TestFunctionName ./package`
-- **Coverage**: `mise coverage` (runs tests with coverage report)
-- **Format**: `mise fmt` (runs `go fmt ./...` and `prettier -lw .`) - **DO NOT RUN** (user will handle manually)
-- **Lint/Vet**: `mise vet` (runs `go vet ./...`) - **DO NOT RUN** (user will handle manually)
-- **Dev workflow**: `mise dev` (deps + format + analysis + test) - **DO NOT RUN** (user will handle manually)
-- **Clean**: `mise clean` (removes build artifacts and test cache)
-- **Build output**: All build artifacts go in `build/` directory
+- **Development workflow**: `mise dev` (runs dependencies, format, analysis, test)
+- **Run application**: `mise run` or `go run cmd/pipeboard/*.go`
+- **Build**: `mise build` (Linux) or `mise build-all` (all platforms)
+- **Manual builds**: Use `go build -o build/pipeboard cmd/pipeboard/*.go` to output to build/ folder
+- **Test**: `go test ./... -cover` or `mise test`
+- **Single test**: `go test ./path/to/package -run TestName`
+- **Coverage**: `mise coverage` (generates HTML report)
+- **Format**: `go fmt ./...`
+- **Lint/Analysis**: `go vet ./...`
 
-## ⚠️ IMPORTANT: DO NOT RUN THE APPLICATION
+## Build Output
 
-- **NEVER run**: `mise run`, `go run .`, or execute the built binary
-- This is a Terminal UI (TUI) application that will take over the terminal
-- Running it will break terminal interaction and require force-killing the process
-- Use build/test commands only for development and validation
+- **IMPORTANT**: All build outputs must go into the `build/` directory, not the project root
+- When building manually, always use: `go build -o build/pipeboard-cli cmd/pipeboard/*.go`
 
-## Code Style
+## Code Style & Conventions
 
-- Use Go 1.25+ features, follow standard Go conventions
-- Package imports: stdlib first, then external, then local (`pipeboard/...`)
-- Struct fields: exported PascalCase, unexported camelCase
-- Error handling: wrap with `fmt.Errorf("description: %w", err)`
-- No comments unless documenting public APIs
-- Use `context.Context` for cancellation/timeouts
-- Prefer composition over inheritance
-- Time formatting: use `2006-01-02 15:04:05` or `2006-01-02 3:04:05 PM MST`
+- **Go version**: 1.23.0
+- **Imports**: Standard library first, then third-party, then local packages with alias prefixes
+- **Naming**: Use Go conventions (CamelCase for exports, camelCase for private)
+- **Error handling**: Always wrap errors with context using `fmt.Errorf("description: %w", err)`
+- **Types**: Define custom types for domain concepts (e.g., `Pipeline`, `ActionExecution`)
+- **Comments**: Minimal comments, code should be self-documenting
+- **Struct organization**: Group related fields, use composition over inheritance
 
 ## Project Structure
 
-- `main.go`: entry point and CLI setup with urfave/cli/v3
-- `services/`: AWS API interactions and business logic
-- `ui/`: TUI components using tview/tcell
-- Module name: `pipeboard` (import as `pipeboard/services`, `pipeboard/ui`)
-
-## AWS Integration
-
-- Uses AWS SDK v2 with default credential chain
-- Supports CodePipeline, CodeBuild, CloudWatch Logs, and Lambda
-- Error handling includes AWS-specific error wrapping
+- `cmd/pipeboard/` - Main application entry point
+- `internal/aws/` - AWS CodePipeline service integration
+- `internal/ui/` - Bubble Tea terminal UI components
+- Uses Cobra for CLI, Bubble Tea for TUI, AWS SDK v2
