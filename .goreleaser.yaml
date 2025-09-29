@@ -11,15 +11,17 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags: ["-trimpath"]
     targets: ["go_first_class"]
+  - main: ./cmd/pipeboard/
 
 changelog:
   sort: asc
   use: github
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
+      - "^docs"
+      - "^test"
       - "^chore"
+      - "^build"
       - Merge pull request
       - Merge remote-tracking branch
       - Merge branch
