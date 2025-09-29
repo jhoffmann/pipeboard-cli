@@ -31,8 +31,8 @@ func defaultStatusColors() statusBarColors {
 	}
 }
 
-// renderStatusBar creates a status bar with three sections: program info, profile, and region
-func renderStatusBar(width int, version, profile, region string) string {
+// renderStatusBar creates a status bar with three sections: program info, profile:filter, and region
+func renderStatusBar(width int, version, profile, filter, region string) string {
 	colors := defaultStatusColors()
 
 	// Left section: "pipeboard v{version}"
@@ -56,7 +56,7 @@ func renderStatusBar(width int, version, profile, region string) string {
 	leftContent := pipeText + boardText + versionText
 	leftContent = leftStyle.Render(leftContent)
 
-	// Middle section: AWS profile
+	// Middle section: AWS profile and filter
 	middleStyle := lipgloss.NewStyle().
 		Background(colors.middleBg).
 		Foreground(colors.middleFg).
@@ -66,7 +66,13 @@ func renderStatusBar(width int, version, profile, region string) string {
 	if profile == "" {
 		profileText = "default"
 	}
-	middleContent := middleStyle.Render(profileText)
+
+	// Combine profile and filter
+	middleText := profileText
+	if filter != "" {
+		middleText = profileText + " · " + filter
+	}
+	middleContent := middleStyle.Render(middleText)
 
 	// Right section: AWS region
 	rightStyle := lipgloss.NewStyle().
@@ -89,7 +95,7 @@ func renderStatusBar(width int, version, profile, region string) string {
 	// If we have extra space, expand the middle section
 	if remainingWidth > 0 {
 		middleStyle = middleStyle.Width(remainingWidth)
-		middleContent = middleStyle.Render(profileText)
+		middleContent = middleStyle.Render(middleText)
 	}
 
 	// Join all sections horizontally

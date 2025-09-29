@@ -22,6 +22,9 @@ type PipelineService interface {
 
 	// GetProfile returns the AWS profile being used
 	GetProfile() string
+
+	// GetFilter returns the pipeline filter being used
+	GetFilter() string
 }
 
 // Logger defines the interface for structured logging

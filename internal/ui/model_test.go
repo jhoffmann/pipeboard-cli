@@ -53,6 +53,10 @@ func (m *mockPipelineService) GetProfile() string {
 	return "default"
 }
 
+func (m *mockPipelineService) GetFilter() string {
+	return "test-filter"
+}
+
 type mockWriter struct{}
 
 func (m *mockWriter) Write(p []byte) (n int, err error) {
@@ -304,7 +308,7 @@ func TestKeyMap(t *testing.T) {
 		t.Errorf("enter key should be 'enter', got %v", keys.enter.Keys()[0])
 	}
 
-	if keys.back.Keys()[0] != "esc" {
-		t.Errorf("back key should be 'esc', got %v", keys.back.Keys()[0])
+	if keys.back.Keys()[0] != "backspace" {
+		t.Errorf("back key should be 'backspace', got %v", keys.back.Keys()[0])
 	}
 }

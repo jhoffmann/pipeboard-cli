@@ -126,8 +126,8 @@ func newKeyMap() *keyMap {
 			key.WithHelp("enter", "select"),
 		),
 		back: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "back"),
+			key.WithKeys("backspace"),
+			key.WithHelp("bksp", "back"),
 		),
 	}
 }
@@ -207,9 +207,10 @@ func (m Model) View() string {
 	// Get AWS context for status bar
 	profile := m.pipelineService.GetProfile()
 	region := m.pipelineService.GetRegion()
+	filter := m.pipelineService.GetFilter()
 
 	// Render status bar
-	statusBar := renderStatusBar(m.width, m.version, profile, region)
+	statusBar := renderStatusBar(m.width, m.version, profile, filter, region)
 
 	// Render main content with docStyle
 	mainContent := docStyle.Render(m.list.View())
@@ -448,6 +449,9 @@ func updateLogsView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 			m.list.ResetFilter()
 			// Restore default delegate when leaving logs view
 			m.list.SetDelegate(list.NewDefaultDelegate())
+			// Re-enable pagination and status bar when leaving logs view
+			m.list.SetShowPagination(true)
+			m.list.SetShowStatusBar(true)
 			return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
 		}
 
@@ -462,6 +466,9 @@ func updateLogsView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 		m.list.StopSpinner()
 		// Switch to compact delegate for logs view
 		m.list.SetDelegate(compactDelegate{})
+		// Disable pagination and status bar for logs view to maximize content space
+		m.list.SetShowPagination(false)
+		m.list.SetShowStatusBar(false)
 		items := make([]list.Item, len(msg.logs))
 		for i, log := range msg.logs {
 			items[i] = logItem{log: log}

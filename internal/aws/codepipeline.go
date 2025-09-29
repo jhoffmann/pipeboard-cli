@@ -90,6 +90,11 @@ func (s *CodePipelineService) GetProfile() string {
 	return s.profile
 }
 
+// GetFilter returns the pipeline filter being used.
+func (s *CodePipelineService) GetFilter() string {
+	return s.filter
+}
+
 // ListPipelines retrieves all AWS CodePipelines matching the configured filter.
 // Returns pipeline information including status and last execution time.
 func (s *CodePipelineService) ListPipelines(ctx context.Context) ([]appTypes.Pipeline, error) {
