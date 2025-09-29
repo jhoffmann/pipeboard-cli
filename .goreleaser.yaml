@@ -7,11 +7,12 @@ gomod:
   proxy: true
 
 builds:
-  - env: ["CGO_ENABLED=0"]
-    mod_timestamp: "{{ .CommitTimestamp }}"
-    flags: ["-trimpath"]
-    targets: ["go_first_class"]
-  - main: ./cmd/pipeboard/
+  - main: ./cmd/pipeboard
+    env:
+      - CGO_ENABLED=0
+      - mod_timestamp="{{ .CommitTimestamp }}"
+      - flags=["-trimpath"]
+      - targets=["go_first_class"]
 
 changelog:
   sort: asc
