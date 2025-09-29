@@ -32,6 +32,19 @@ func (m *mockPipelineService) GetPipelineActions(ctx context.Context, pipelineNa
 	return m.actions, nil
 }
 
+func (m *mockPipelineService) GetActionLogs(ctx context.Context, pipelineName, stageName, actionName string) ([]types.LogEntry, error) {
+	// Return mock logs for testing
+	return []types.LogEntry{
+		{
+			Timestamp:  time.Now().Add(-5 * time.Minute),
+			Level:      "INFO",
+			Message:    "Test log message",
+			Source:     "TestSource",
+			ActionName: actionName,
+		},
+	}, nil
+}
+
 func (m *mockPipelineService) GetRegion() string {
 	return "us-east-1"
 }
@@ -213,6 +226,70 @@ func TestUpdateWithActionsLoaded(t *testing.T) {
 	// Check that spinner is stopped (cmd should be nil)
 	if cmd != nil {
 		t.Error("Update with actionsLoadedMsg should return nil command (spinner stopped)")
+	}
+}
+
+func TestLogItem(t *testing.T) {
+	logEntry := types.LogEntry{
+		Timestamp:  time.Now(),
+		Level:      "INFO",
+		Message:    "Test log message",
+		Source:     "TestSource",
+		ActionName: "TestAction",
+	}
+
+	item := logItem{log: logEntry}
+
+	title := item.Title()
+	if title == "" {
+		t.Error("logItem.Title() should not be empty")
+	}
+
+	expectedFilterValue := "INFO Test log message TestSource"
+	if item.FilterValue() != expectedFilterValue {
+		t.Errorf("logItem.FilterValue() = %v, want %v", item.FilterValue(), expectedFilterValue)
+	}
+
+	description := item.Description()
+	if description != "" {
+		t.Error("logItem.Description() should be empty for single-line display")
+	}
+}
+
+func TestUpdateWithLogsLoaded(t *testing.T) {
+	model := createTestModel()
+	model.currentView = "logs"
+
+	// Test logs loaded message
+	logs := []types.LogEntry{
+		{
+			Timestamp:  time.Now(),
+			Level:      "INFO",
+			Message:    "Test log 1",
+			Source:     "TestSource",
+			ActionName: "TestAction",
+		},
+		{
+			Timestamp:  time.Now().Add(time.Second),
+			Level:      "ERROR",
+			Message:    "Test log 2",
+			Source:     "TestSource",
+			ActionName: "TestAction",
+		},
+	}
+
+	msg := logsLoadedMsg{logs: logs}
+	newModel, cmd := model.Update(msg)
+
+	// Check that logs were loaded into the list
+	m := newModel.(Model)
+	if len(m.list.Items()) != 2 {
+		t.Errorf("Expected 2 items in list, got %d", len(m.list.Items()))
+	}
+
+	// Check that spinner is stopped (cmd should be nil)
+	if cmd != nil {
+		t.Error("Update with logsLoadedMsg should return nil command (spinner stopped)")
 	}
 }
 

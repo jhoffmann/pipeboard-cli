@@ -35,13 +35,16 @@ func (p Pipeline) Description() string {
 
 // ActionExecution represents a pipeline action execution with timing and status information
 type ActionExecution struct {
-	StageName      string
-	ActionName     string
-	ActionType     string
-	Status         string
-	StartTime      time.Time
-	LastUpdateTime time.Time
-	EndTime        time.Time
+	StageName                string
+	ActionName               string
+	ActionType               string
+	Status                   string
+	StartTime                time.Time
+	LastUpdateTime           time.Time
+	EndTime                  time.Time
+	ExternalExecutionId      string
+	ExternalExecutionUrl     string
+	ExternalExecutionSummary string
 }
 
 // Description returns a formatted description of the action execution.
@@ -110,6 +113,44 @@ func FormatTimeAgo(duration time.Duration) string {
 			return "1 day ago"
 		}
 		return fmt.Sprintf("%d days ago", days)
+	}
+}
+
+// LogEntry represents a single log entry from an action execution
+type LogEntry struct {
+	Timestamp  time.Time
+	Level      string
+	Message    string
+	Source     string
+	ActionName string
+}
+
+// Description returns a formatted description of the log entry.
+// Includes colorized level, timestamp, and message for display in the terminal UI.
+func (l LogEntry) Description() string {
+	coloredLevel := ColorizeLogLevel(l.Level)
+	timeStr := l.Timestamp.Format("15:04:05")
+
+	if l.Source != "" {
+		return fmt.Sprintf("%s | %s | [%s] %s", timeStr, coloredLevel, l.Source, l.Message)
+	}
+	return fmt.Sprintf("%s | %s | %s", timeStr, coloredLevel, l.Message)
+}
+
+// ColorizeLogLevel applies color styling to log level strings using lipgloss.
+// INFO is blue, WARN is yellow, ERROR is red, DEBUG is gray, others remain unstyled.
+func ColorizeLogLevel(level string) string {
+	switch level {
+	case "INFO":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39")).Render(level) // Blue
+	case "WARN":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220")).Render(level) // Yellow
+	case "ERROR":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196")).Render(level) // Red
+	case "DEBUG":
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245")).Render(level) // Gray
+	default:
+		return level
 	}
 }
 

@@ -14,6 +14,9 @@ type PipelineService interface {
 	// GetPipelineActions returns all actions for a specific pipeline
 	GetPipelineActions(ctx context.Context, pipelineName string) ([]ActionExecution, error)
 
+	// GetActionLogs returns log entries for a specific action execution
+	GetActionLogs(ctx context.Context, pipelineName, stageName, actionName string) ([]LogEntry, error)
+
 	// GetRegion returns the AWS region being used
 	GetRegion() string
 

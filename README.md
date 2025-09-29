@@ -1,11 +1,5 @@
 # pipeboard
 
-```
-░█▀█░▀█▀░█▀█░█▀▀░█▀▄░█▀█░█▀█░█▀▄░█▀▄
-░█▀▀░░█░░█▀▀░█▀▀░█▀▄░█░█░█▀█░█▀▄░█░█
-░▀░░░▀▀▀░▀░░░▀▀▀░▀░▀░▀▀▀░▀░▀░▀░▀░▀▀░
-```
-
 A terminal user interface for monitoring AWS CodePipelines.
 
 ## Features
@@ -39,4 +33,3 @@ Where `<filter>` is a pattern to match pipeline names.
 
 - Go 1.24+
 - AWS credentials configured (if you can run the AWS CLI, you should be good to go)
-

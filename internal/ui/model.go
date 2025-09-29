@@ -4,6 +4,8 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -17,6 +19,31 @@ import (
 )
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2, 0, 2) // top, right, bottom, left
+
+// compactDelegate is a custom list delegate with minimal spacing for logs
+type compactDelegate struct{}
+
+func (d compactDelegate) Height() int                             { return 1 }
+func (d compactDelegate) Spacing() int                            { return 0 }
+func (d compactDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d compactDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(logItem)
+	if !ok {
+		return
+	}
+
+	str := i.Title()
+
+	// Apply selection styling if this item is selected
+	if index == m.Index() {
+		str = lipgloss.NewStyle().
+			Background(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("230")).
+			Render(str)
+	}
+
+	fmt.Fprint(w, str)
+}
 
 // pipelineItem wraps a Pipeline for use in the bubble tea list component.
 type pipelineItem struct {
@@ -54,9 +81,30 @@ func (i actionItem) Description() string { return i.action.Description() }
 // FilterValue returns the combined stage and action name for list filtering.
 func (i actionItem) FilterValue() string { return i.action.StageName + " " + i.action.ActionName }
 
+// logItem wraps a LogEntry for use in the bubble tea list component.
+type logItem struct {
+	log types.LogEntry
+}
+
+// Title returns the full log entry formatted for single-line display.
+func (i logItem) Title() string {
+	return i.log.Description()
+}
+
+// Description returns empty string since we want single-line display.
+func (i logItem) Description() string { return "" }
+
+// FilterValue returns the log message and level for list filtering.
+func (i logItem) FilterValue() string { return i.log.Level + " " + i.log.Message + " " + i.log.Source }
+
 // actionsLoadedMsg contains the result of loading pipeline actions from AWS.
 type actionsLoadedMsg struct {
 	actions []types.ActionExecution
+}
+
+// logsLoadedMsg contains the result of loading action logs from AWS.
+type logsLoadedMsg struct {
+	logs []types.LogEntry
 }
 
 // keyMap defines the key bindings for the application.
@@ -90,8 +138,9 @@ type Model struct {
 	pipelineService  types.PipelineService
 	logger           *slog.Logger
 	keys             *keyMap
-	currentView      string // "list" or "detail"
+	currentView      string // "list", "detail", or "logs"
 	selectedPipeline types.Pipeline
+	selectedAction   types.ActionExecution
 	version          string // Application version for status bar
 	width            int    // Terminal width for status bar rendering
 	height           int    // Terminal height for layout
@@ -106,7 +155,7 @@ func NewModel(pipelineService types.PipelineService, logger *slog.Logger, versio
 
 	l := list.New(items, delegate, 0, 0)
 	l.Title = "AWS CodePipelines"
-	l.SetShowStatusBar(false)
+	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
@@ -141,10 +190,16 @@ func (m Model) Init() tea.Cmd {
 // Routes to appropriate view-specific update functions.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Route to appropriate update function
-	if m.currentView == "list" {
+	switch m.currentView {
+	case "list":
+		return updateListView(msg, m)
+	case "detail":
+		return updateDetailView(msg, m)
+	case "logs":
+		return updateLogsView(msg, m)
+	default:
 		return updateListView(msg, m)
 	}
-	return updateDetailView(msg, m)
 }
 
 // View renders the current model state as a string for display.
@@ -219,6 +274,20 @@ func (m Model) loadPipelineActions() tea.Cmd {
 	}
 }
 
+// loadActionLogs returns a command that fetches logs for the selected action.
+func (m Model) loadActionLogs() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		m.logger.Debug("Loading action logs", "pipeline", m.selectedPipeline.Name, "stage", m.selectedAction.StageName, "action", m.selectedAction.ActionName)
+		logs, err := m.pipelineService.GetActionLogs(ctx, m.selectedPipeline.Name, m.selectedAction.StageName, m.selectedAction.ActionName)
+		if err != nil {
+			m.logger.Error("Failed to load action logs", "pipeline", m.selectedPipeline.Name, "stage", m.selectedAction.StageName, "action", m.selectedAction.ActionName, "error", err)
+			return logsLoadedMsg{logs: []types.LogEntry{}}
+		}
+		return logsLoadedMsg{logs: logs}
+	}
+}
+
 // updateListView handles messages when in pipeline list view.
 // Manages pipeline selection, refresh, and navigation to detail view.
 func updateListView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
@@ -250,6 +319,8 @@ func updateListView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 				selected := m.list.SelectedItem().(pipelineItem)
 				m.selectedPipeline = selected.pipeline
 				m.currentView = "detail"
+				// Clear filter when switching to detail view
+				m.list.ResetFilter()
 				return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
 			}
 		}
@@ -272,6 +343,8 @@ func updateListView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 
 	case pipelinesLoadedMsg:
 		m.list.StopSpinner()
+		// Ensure default delegate for pipelines view
+		m.list.SetDelegate(list.NewDefaultDelegate())
 		items := make([]list.Item, len(msg.pipelines))
 		for i, pipeline := range msg.pipelines {
 			items[i] = pipelineItem{pipeline: pipeline}
@@ -293,7 +366,7 @@ func updateDetailView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 
 	// Update help keys for detail view
 	m.keys.back.SetEnabled(true)
-	m.keys.enter.SetEnabled(false)
+	m.keys.enter.SetEnabled(true)
 
 	m.list.Title = "Actions: " + m.selectedPipeline.Name
 
@@ -307,8 +380,19 @@ func updateDetailView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.refresh):
 			return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
+		case key.Matches(msg, m.keys.enter):
+			if len(m.list.Items()) > 0 {
+				selected := m.list.SelectedItem().(actionItem)
+				m.selectedAction = selected.action
+				m.currentView = "logs"
+				// Clear filter when switching to logs view
+				m.list.ResetFilter()
+				return m, tea.Batch(m.loadActionLogs(), m.list.StartSpinner())
+			}
 		case key.Matches(msg, m.keys.back):
 			m.currentView = "list"
+			// Clear filter when switching back to list view
+			m.list.ResetFilter()
 			return m, tea.Batch(m.loadPipelines(), m.list.StartSpinner())
 		}
 
@@ -321,9 +405,66 @@ func updateDetailView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
 
 	case actionsLoadedMsg:
 		m.list.StopSpinner()
+		// Ensure default delegate for actions view
+		m.list.SetDelegate(list.NewDefaultDelegate())
 		items := make([]list.Item, len(msg.actions))
 		for i, action := range msg.actions {
 			items[i] = actionItem{action: action}
+		}
+		m.list.SetItems(items)
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
+}
+
+// updateLogsView handles messages when in action logs view.
+// Manages log refresh and navigation back to actions view.
+func updateLogsView(msg tea.Msg, m Model) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// Update help keys for logs view
+	m.keys.back.SetEnabled(true)
+	m.keys.enter.SetEnabled(false)
+
+	m.list.Title = "Logs: " + m.selectedAction.StageName + " → " + m.selectedAction.ActionName
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		// Don't match any of the keys below if we're actively filtering.
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
+		switch {
+		case key.Matches(msg, m.keys.refresh):
+			return m, tea.Batch(m.loadActionLogs(), m.list.StartSpinner())
+		case key.Matches(msg, m.keys.back):
+			m.currentView = "detail"
+			// Clear filter when switching back to detail view
+			m.list.ResetFilter()
+			// Restore default delegate when leaving logs view
+			m.list.SetDelegate(list.NewDefaultDelegate())
+			return m, tea.Batch(m.loadPipelineActions(), m.list.StartSpinner())
+		}
+
+	case tea.WindowSizeMsg:
+		h, v := docStyle.GetFrameSize()
+		// Reserve space for status bar (1 line + 1 for spacing)
+		m.list.SetSize(msg.Width-h, msg.Height-v-2)
+		m.width = msg.Width
+		m.height = msg.Height
+
+	case logsLoadedMsg:
+		m.list.StopSpinner()
+		// Switch to compact delegate for logs view
+		m.list.SetDelegate(compactDelegate{})
+		items := make([]list.Item, len(msg.logs))
+		for i, log := range msg.logs {
+			items[i] = logItem{log: log}
 		}
 		m.list.SetItems(items)
 		return m, nil
