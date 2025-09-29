@@ -15,7 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"pipeboard-cli-v2/internal/types"
+	"github.com/jhoffmann/pipeboard-cli/internal/types"
 )
 
 var docStyle = lipgloss.NewStyle().Margin(1, 2, 0, 2) // top, right, bottom, left

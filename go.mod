@@ -1,4 +1,4 @@
-module pipeboard-cli-v2
+module github.com/jhoffmann/pipeboard-cli
 
 go 1.24.0
 

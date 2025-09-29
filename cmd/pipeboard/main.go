@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	awsservice "pipeboard-cli-v2/internal/aws"
-	"pipeboard-cli-v2/internal/ui"
+	awsservice "github.com/jhoffmann/pipeboard-cli/internal/aws"
+	"github.com/jhoffmann/pipeboard-cli/internal/ui"
 )
 
 var (

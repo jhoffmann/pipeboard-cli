@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/codepipeline/types"
 
-	appTypes "pipeboard-cli-v2/internal/types"
+	appTypes "github.com/jhoffmann/pipeboard-cli/internal/types"
 )
 
 // CodePipelineAPI defines the interface for AWS CodePipeline operations.

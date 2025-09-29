@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"pipeboard-cli-v2/internal/types"
+	"github.com/jhoffmann/pipeboard-cli/internal/types"
 )
 
 type mockPipelineService struct {
